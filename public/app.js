@@ -221,6 +221,15 @@ const ThreatTicker = ({ threats = [] }) => {
 const Shield = ({ size = 24, className = "" }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
 );
+const CalendarIcon = ({ size = 18 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 2v4M16 2v4M3 10h18"/><rect width="18" height="18" x="3" y="4" rx="2"/></svg>
+);
+const ArrowIcon = ({ size = 18 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>
+);
+const SearchIcon = ({ size = 18 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+);
 // --- COMPONENTS ---
 const Box = ({ title, children, className = "" }) => (
     <section className={`dashboard-panel ${className}`}>
@@ -321,6 +330,283 @@ const NetworkChart = ({ missions }) => {
     );
 };
 
+const getEventState = (event, now) => {
+    const start = new Date(event.start).getTime();
+    const finish = new Date(event.finish).getTime();
+    if (Number.isFinite(start) && now < start) return 'upcoming';
+    if (Number.isFinite(finish) && now < finish) return 'live';
+    return 'ended';
+};
+
+const formatCountdown = (target, now) => {
+    const difference = Math.max(0, new Date(target).getTime() - now);
+    const days = Math.floor(difference / 86400000);
+    const hours = Math.floor((difference % 86400000) / 3600000);
+    const minutes = Math.floor((difference % 3600000) / 60000);
+    const seconds = Math.floor((difference % 60000) / 1000);
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+};
+
+const EventCommandCenter = ({ events = [] }) => {
+    const [filter, setFilter] = useState('all');
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const filters = [
+        { id: 'all', label: 'All operations' },
+        { id: 'live', label: 'Live now' },
+        { id: 'jeopardy', label: 'Jeopardy' },
+        { id: 'attack-defense', label: 'Attack / defense' }
+    ];
+    const visibleEvents = events.filter(event => {
+        if (filter === 'all') return true;
+        if (filter === 'live') return getEventState(event, now) === 'live';
+        const format = String(event.format || '').toLowerCase();
+        return filter === 'jeopardy' ? format.includes('jeopardy') : format.includes('attack');
+    });
+
+    return (
+        <section className="content-section" id="events" aria-labelledby="events-title">
+            <div className="section-heading">
+                <div>
+                    <p className="eyebrow">Operation queue / CTFtime live feed</p>
+                    <h2 id="events-title">Event command center</h2>
+                    <p>Upcoming competitions, live countdowns and calendar-ready mission briefs.</p>
+                </div>
+                <span className="section-count">{events.length} tracked</span>
+            </div>
+
+            <div className="filter-row" aria-label="Filter CTF events">
+                {filters.map(item => (
+                    <button key={item.id} type="button" className="filter-chip" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>
+                        {item.label}
+                    </button>
+                ))}
+            </div>
+
+            {visibleEvents.length > 0 ? (
+                <div className="operation-grid">
+                    {visibleEvents.map(event => {
+                        const state = getEventState(event, now);
+                        const countdownTarget = state === 'live' ? event.finish : event.start;
+                        const startDate = event.start ? new Date(event.start) : null;
+                        return (
+                            <article className={`operation-card operation-${state}`} key={event.id || `${event.name}-${event.start}`}>
+                                <div className="operation-card-top">
+                                    <span className="operation-status"><span className="status-dot"></span>{state === 'live' ? 'Live now' : 'Upcoming'}</span>
+                                    <span className="operation-format">{event.format || 'Other'}</span>
+                                </div>
+                                <div className="operation-date" aria-hidden="true">
+                                    <strong>{startDate && !Number.isNaN(startDate.getTime()) ? startDate.toLocaleDateString('en-GB', { day: '2-digit' }) : '--'}</strong>
+                                    <span>{startDate && !Number.isNaN(startDate.getTime()) ? startDate.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase() : 'TBD'}</span>
+                                </div>
+                                <div className="operation-copy">
+                                    <h3>{event.name}</h3>
+                                    <div className="operation-meta">
+                                        <span>{event.onsite ? event.location || 'On-site' : 'Online'}</span>
+                                        <span>{Number(event.weight) > 0 ? `Weight ${event.weight}` : 'Unrated'}</span>
+                                        <span>{event.restrictions || 'Open'}</span>
+                                    </div>
+                                </div>
+                                <div className="countdown-block">
+                                    <span>{state === 'live' ? 'Ends in' : 'Starts in'}</span>
+                                    <strong aria-label={`${state === 'live' ? 'Ends' : 'Starts'} in ${formatCountdown(countdownTarget, now)}`}>{formatCountdown(countdownTarget, now)}</strong>
+                                </div>
+                                <div className="operation-actions">
+                                    {event.id && event.start && event.finish ? (
+                                        <a className="secondary-action" href={`/api/events/${encodeURIComponent(event.id)}/calendar.ics`} download>
+                                            <CalendarIcon /> Save .ics
+                                        </a>
+                                    ) : (
+                                        <button type="button" className="secondary-action" disabled><CalendarIcon /> Calendar unavailable</button>
+                                    )}
+                                    <a className="primary-action" href={event.url} target="_blank" rel="noopener noreferrer">
+                                        Mission brief <ArrowIcon />
+                                    </a>
+                                </div>
+                            </article>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="section-empty">
+                    <strong>No matching operations.</strong>
+                    <span>Try another filter or check back after the next CTFtime sync.</span>
+                </div>
+            )}
+        </section>
+    );
+};
+
+const renderInlineMarkdown = (text, keyPrefix) => {
+    const parts = String(text).split(/(`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\))/g).filter(Boolean);
+    return parts.map((part, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (part.startsWith('`') && part.endsWith('`')) return <code key={key}>{part.slice(1, -1)}</code>;
+        const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+        if (link) return <a key={key} href={link[2]} target="_blank" rel="noopener noreferrer">{link[1]}</a>;
+        return <React.Fragment key={key}>{part}</React.Fragment>;
+    });
+};
+
+const MarkdownArticle = ({ markdown = '' }) => {
+    const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+    const blocks = [];
+    let index = 0;
+
+    while (index < lines.length) {
+        const line = lines[index].trim();
+        if (!line) { index += 1; continue; }
+
+        if (line.startsWith('```')) {
+            const language = line.slice(3).trim();
+            const code = [];
+            index += 1;
+            while (index < lines.length && !lines[index].trim().startsWith('```')) {
+                code.push(lines[index]);
+                index += 1;
+            }
+            blocks.push(<pre key={`code-${index}`} data-language={language || undefined}><code>{code.join('\n')}</code></pre>);
+            index += 1;
+            continue;
+        }
+
+        const heading = line.match(/^(#{1,3})\s+(.+)$/);
+        if (heading) {
+            const level = Math.min(3, heading[1].length + 1);
+            blocks.push(React.createElement(`h${level}`, { key: `heading-${index}` }, renderInlineMarkdown(heading[2], `heading-${index}`)));
+            index += 1;
+            continue;
+        }
+
+        if (line.startsWith('- ')) {
+            const items = [];
+            while (index < lines.length && lines[index].trim().startsWith('- ')) {
+                items.push(lines[index].trim().slice(2));
+                index += 1;
+            }
+            blocks.push(<ul key={`list-${index}`}>{items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{renderInlineMarkdown(item, `list-${index}-${itemIndex}`)}</li>)}</ul>);
+            continue;
+        }
+
+        const paragraph = [line];
+        index += 1;
+        while (index < lines.length && lines[index].trim() && !/^(#{1,3})\s|^- |^```/.test(lines[index].trim())) {
+            paragraph.push(lines[index].trim());
+            index += 1;
+        }
+        blocks.push(<p key={`paragraph-${index}`}>{renderInlineMarkdown(paragraph.join(' '), `paragraph-${index}`)}</p>);
+    }
+
+    return <div className="article-content">{blocks}</div>;
+};
+
+const WriteupLibrary = ({ posts = [], state = 'loading' }) => {
+    const [query, setQuery] = useState('');
+    const [category, setCategory] = useState('all');
+    const [selectedPost, setSelectedPost] = useState(null);
+    const [articleState, setArticleState] = useState('idle');
+    const categories = ['all', ...new Set(posts.map(post => post.category).filter(Boolean))];
+    const normalizedQuery = query.trim().toLowerCase();
+    const visiblePosts = posts.filter(post => {
+        const matchesCategory = category === 'all' || post.category === category;
+        const haystack = [post.title, post.excerpt, post.author, ...(post.tags || [])].join(' ').toLowerCase();
+        return matchesCategory && (!normalizedQuery || haystack.includes(normalizedQuery));
+    });
+
+    const openPost = async slug => {
+        setArticleState('loading');
+        try {
+            const response = await fetch(`/api/writeups/${encodeURIComponent(slug)}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const payload = await response.json();
+            setSelectedPost(payload.post);
+            setArticleState('ready');
+            requestAnimationFrame(() => document.getElementById('article-reader')?.focus());
+        } catch (error) {
+            console.error('Writeup fetch failed', error);
+            setArticleState('error');
+        }
+    };
+
+    return (
+        <section className="content-section" id="writeups" aria-labelledby="writeups-title">
+            <div className="section-heading">
+                <div>
+                    <p className="eyebrow">Knowledge base / public archive</p>
+                    <h2 id="writeups-title">Field notes &amp; writeups</h2>
+                    <p>Technical debriefs, team workflows and lessons carried into the next operation.</p>
+                </div>
+                <span className="section-count">{posts.length} published</span>
+            </div>
+
+            {selectedPost ? (
+                <article className="article-reader" id="article-reader" tabIndex="-1">
+                    <button type="button" className="article-back" onClick={() => setSelectedPost(null)}>← Back to field notes</button>
+                    <div className="article-meta">
+                        <span>{selectedPost.category}</span>
+                        <time dateTime={selectedPost.publishedAt}>{new Date(`${selectedPost.publishedAt}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}</time>
+                        <span>{selectedPost.readingMinutes} min read</span>
+                    </div>
+                    <MarkdownArticle markdown={selectedPost.body} />
+                </article>
+            ) : (
+                <>
+                    <div className="library-toolbar">
+                        <label className="search-field">
+                            <SearchIcon />
+                            <span className="sr-only">Search field notes</span>
+                            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search writeups, tags or authors" />
+                        </label>
+                        <div className="filter-row" aria-label="Filter field notes by category">
+                            {categories.map(item => (
+                                <button key={item} type="button" className="filter-chip" aria-pressed={category === item} onClick={() => setCategory(item)}>
+                                    {item === 'all' ? 'All notes' : item}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {state === 'loading' || articleState === 'loading' ? (
+                        <div className="section-empty">Loading field notes...</div>
+                    ) : visiblePosts.length > 0 ? (
+                        <div className="writeup-grid">
+                            {visiblePosts.map((post, index) => (
+                                <article className={`writeup-card ${index === 0 && !query && category === 'all' ? 'writeup-featured' : ''}`} key={post.slug}>
+                                    <div className="writeup-card-meta">
+                                        <span>{post.category}</span>
+                                        <time dateTime={post.publishedAt}>{new Date(`${post.publishedAt}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</time>
+                                    </div>
+                                    <h3>{post.title}</h3>
+                                    <p>{post.excerpt}</p>
+                                    <div className="tag-list" aria-label="Post tags">
+                                        {(post.tags || []).map(tag => <span key={tag}>{tag}</span>)}
+                                    </div>
+                                    <button type="button" className="read-post" onClick={() => openPost(post.slug)}>
+                                        Read field note <ArrowIcon />
+                                    </button>
+                                </article>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="section-empty">
+                            <strong>No field notes match “{query || category}”.</strong>
+                            <span>Clear the search or choose another category.</span>
+                        </div>
+                    )}
+
+                    {articleState === 'error' && <p className="inline-error" role="alert">The selected field note could not be loaded. Please try again.</p>}
+                </>
+            )}
+        </section>
+    );
+};
+
 // --- MAIN APP ---
 const App = () => {
     const [data, setData] = useState({ 
@@ -330,6 +616,8 @@ const App = () => {
         upcoming: [] 
     });
     const [threats, setThreats] = useState([]);
+    const [writeups, setWriteups] = useState([]);
+    const [writeupState, setWriteupState] = useState('loading');
     const [terminalOpen, setTerminalOpen] = useState(false);
     const [connectionState, setConnectionState] = useState('loading');
     const [lastUpdated, setLastUpdated] = useState(null);
@@ -381,8 +669,24 @@ const App = () => {
             }
         };
 
+        const fetchWriteups = async () => {
+            try {
+                const res = await fetch('/api/writeups', { signal: controller.signal });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const json = await res.json();
+                setWriteups(Array.isArray(json.posts) ? json.posts : []);
+                setWriteupState('ready');
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    setWriteupState('error');
+                    console.error('Writeup library fetch failed', e);
+                }
+            }
+        };
+
         fetchIntel();
         fetchThreats();
+        fetchWriteups();
         const intelInterval = setInterval(fetchIntel, 300000);
         const threatInterval = setInterval(fetchThreats, 300000);
         return () => {
@@ -423,6 +727,10 @@ const App = () => {
                         </div>
                     </div>
                     <div className="header-actions">
+                        <nav className="quick-nav" aria-label="Primary navigation">
+                            <a href="#events">Events</a>
+                            <a href="#writeups">Field notes</a>
+                        </nav>
                         <div className={`connection-pill connection-${connectionState}`} role="status" aria-live="polite">
                             <span className="status-dot"></span>
                             {connectionState === 'loading' ? 'Syncing' : connectionState}
@@ -437,7 +745,7 @@ const App = () => {
                     <div className="overview-copy">
                         <p className="eyebrow">Command center / season {data.team.year || new Date().getFullYear()}</p>
                         <h2 id="overview-title">Competition signal, without the noise.</h2>
-                        <p>Live CTFtime intelligence, team performance and upcoming operations in one focused view.</p>
+                        <p>Live CTFtime intelligence, team performance, upcoming operations and public field notes in one focused view.</p>
                     </div>
                     <div className="sync-meta">
                         <span>Last synchronized</span>
@@ -449,7 +757,7 @@ const App = () => {
                     <MetricCard label="Country rank" value={`#${data.team.country_rank ?? '---'}`} tone="green" detail="Vietnam leaderboard" />
                     <MetricCard label="Events played" value={data.missions.length} tone="cyan" detail={`${data.team.year || 'Current'} season`} />
                     <MetricCard label="Upcoming" value={data.upcoming.length} tone="violet" detail="Next 30 days" />
-                    <MetricCard label="Data status" value={connectionState === 'online' ? 'Live' : 'Pending'} tone="amber" detail="5 minute refresh" />
+                    <MetricCard label="Field notes" value={writeups.length} tone="amber" detail="Public knowledge base" />
                 </section>
 
                 <main className="dashboard-grid" id="main-content">
@@ -472,6 +780,15 @@ const App = () => {
                                     );
                                 })}
                             </ul>
+                        </Box>
+
+                        <Box title="Node status">
+                            <dl className="status-list">
+                                <div><dt>API link</dt><dd className={connectionState === 'online' ? 'status-good' : 'status-warn'}>{connectionState}</dd></div>
+                                <div><dt>Refresh cycle</dt><dd>5 min</dd></div>
+                                <div><dt>Endpoint</dt><dd>:7000</dd></div>
+                                <div><dt>Season</dt><dd>{data.team.year || '---'}</dd></div>
+                            </dl>
                         </Box>
                     </div>
 
@@ -501,32 +818,10 @@ const App = () => {
                             </table>
                         </div>
                     </Box>
-
-                    <div className="dashboard-stack">
-                        <Box title="Upcoming operations">
-                            <div className="event-list">
-                                {data.upcoming.length > 0 ? data.upcoming.map((event, index) => (
-                                    <a key={`${event.name}-${index}`} href={event.url} target="_blank" rel="noopener noreferrer" className="event-card">
-                                        <span className="event-date">{event.start}</span>
-                                        <strong>{event.name}</strong>
-                                        <span className="event-weight">Weight {event.weight || 'TBD'}</span>
-                                    </a>
-                                )) : (
-                                    <div className="empty-state">No upcoming events in the next 30 days.</div>
-                                )}
-                            </div>
-                        </Box>
-
-                        <Box title="Node status">
-                            <dl className="status-list">
-                                <div><dt>API link</dt><dd className={connectionState === 'online' ? 'status-good' : 'status-warn'}>{connectionState}</dd></div>
-                                <div><dt>Refresh cycle</dt><dd>5 min</dd></div>
-                                <div><dt>Endpoint</dt><dd>:7000</dd></div>
-                                <div><dt>Season</dt><dd>{data.team.year || '---'}</dd></div>
-                            </dl>
-                        </Box>
-                    </div>
                 </main>
+
+                <EventCommandCenter events={data.upcoming} />
+                <WriteupLibrary posts={writeups} state={writeupState} />
 
                 <ThreatTicker threats={threats} />
 

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { getActiveRating, getParticipatedEvents } = require('../server');
+const { getActiveRating, getParticipatedEvents, toUpcomingOperation, parsePost, createIcs } = require('../server');
 
 test('getActiveRating reads the current CTFtime rating object shape', () => {
     const result = getActiveRating({
@@ -48,4 +48,55 @@ test('getParticipatedEvents filters the results feed and sorts newest first', ()
     assert.deepEqual(result.map(event => event.id), ['300', '100']);
     assert.equal(result[0].rating_points, null);
     assert.equal(result[0].url, 'https://ctftime.org/event/300');
+});
+
+test('toUpcomingOperation keeps calendar-ready CTFtime fields', () => {
+    const result = toUpcomingOperation({
+        id: 42,
+        title: 'Example CTF',
+        start: '2026-10-01T10:00:00+00:00',
+        finish: '2026-10-02T10:00:00+00:00',
+        format: 'Jeopardy',
+        weight: 25,
+        onsite: false,
+        ctftime_url: 'https://ctftime.org/event/42/'
+    });
+
+    assert.equal(result.name, 'Example CTF');
+    assert.equal(result.format, 'Jeopardy');
+    assert.equal(result.url, 'https://ctftime.org/event/42/');
+    assert.equal(result.onsite, false);
+});
+
+test('parsePost reads frontmatter and estimates reading time', () => {
+    const post = parsePost(`---
+slug: sample-note
+title: Sample note
+tags: web, pwn
+date: 2026-09-21
+---
+
+# Sample note
+
+Useful field notes.`, 'fallback');
+
+    assert.equal(post.slug, 'sample-note');
+    assert.equal(post.title, 'Sample note');
+    assert.deepEqual(post.tags, ['web', 'pwn']);
+    assert.equal(post.readingMinutes, 1);
+});
+
+test('createIcs returns an importable calendar event', () => {
+    const calendar = createIcs({
+        id: 42,
+        name: 'Example CTF, Finals',
+        start: '2026-10-01T10:00:00.000Z',
+        finish: '2026-10-02T10:00:00.000Z',
+        url: 'https://ctftime.org/event/42/'
+    });
+
+    assert.match(calendar, /BEGIN:VCALENDAR/);
+    assert.match(calendar, /DTSTART:20261001T100000Z/);
+    assert.match(calendar, /SUMMARY:Example CTF\\, Finals/);
+    assert.match(calendar, /END:VCALENDAR/);
 });

@@ -62,7 +62,8 @@ Real-time tracking, interactive terminal, hidden flags, and more!
 - **Real-time CTFtime API**: Tự động lấy data từ CTFtime.org
 - **Interactive Charts**: Biểu đồ traffic với Chart.js
 - **Team Statistics**: Ranking, points, missions
-- **Upcoming Events**: Lịch thi đấu sắp tới
+- **Event Command Center**: Countdown trực tiếp, format filters và tải lịch `.ics`
+- **Field Notes & Writeups**: Blog Markdown có tìm kiếm và category filters
 - **Threat Intelligence Ticker**: Bảng tin SOC style
 
 ### 💻 Terminal Mode
@@ -123,8 +124,11 @@ PORT=7001 npm start
 
 ```
 ctf-dashboard/
+├── content/
+│   └── posts/           # Markdown blog posts and writeups
 ├── public/
 │   ├── index.html      # Main HTML (với hidden flag #3)
+│   ├── favicon.png     # Team favicon
 │   ├── styles.css      # Styles (với hidden flag #1)
 │   ├── app.js          # React application logic
 │   └── robots.txt      # Robots file (với bonus flag)
@@ -152,6 +156,10 @@ const MANUAL_MEMBERS = [
     // ...
 ];
 ```
+
+### Thêm bài viết hoặc writeup
+
+Copy `content/posts/_template.md` thành một file `.md` mới, cập nhật frontmatter và nội dung. Các file bắt đầu bằng `_` sẽ không được publish.
 
 ---
 
@@ -220,6 +228,12 @@ Fetch team intelligence từ CTFtime API
   "status": "LINKED"
 }
 ```
+
+### `GET /api/writeups`
+Danh sách metadata của các bài blog/writeup đã publish.
+
+### `GET /api/writeups/:slug`
+Nội dung Markdown của một bài viết.
 
 ---
 

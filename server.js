@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const fs = require('fs/promises');
 const Parser = require('rss-parser');
 const app = express();
 const parser = new Parser();
@@ -8,6 +9,7 @@ const parser = new Parser();
 const PORT = Number(process.env.PORT) || 7000;
 const TEAM_ID = '412747';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const POSTS_DIR = path.join(__dirname, 'content', 'posts');
 
 // Cache for RSS feeds
 let threatCache = [];
@@ -55,6 +57,102 @@ const getParticipatedEvents = (results = {}, teamId, year) => Object.entries(res
         }];
     })
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+const toUpcomingOperation = (event = {}) => ({
+    id: event.id,
+    name: event.title || 'Untitled operation',
+    start: event.start || null,
+    finish: event.finish || null,
+    format: event.format || 'Other',
+    weight: event.weight ?? null,
+    onsite: Boolean(event.onsite),
+    location: event.location || null,
+    restrictions: event.restrictions || 'Open',
+    url: event.ctftime_url || event.url || (event.id ? `https://ctftime.org/event/${event.id}` : '#'),
+    officialUrl: event.url || null
+});
+
+const escapeIcsValue = (value = '') => String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+
+const toIcsDate = value => new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+const createIcs = event => [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//6h4T 9pT pR0//CTF Dashboard//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:ctftime-${event.id || 'event'}@6h4t9ptpr0.tech`,
+    `DTSTAMP:${toIcsDate(new Date())}`,
+    `DTSTART:${toIcsDate(event.start)}`,
+    `DTEND:${toIcsDate(event.finish)}`,
+    `SUMMARY:${escapeIcsValue(event.name)}`,
+    `DESCRIPTION:${escapeIcsValue(`CTF operation tracked by 6h4T 9pT pR0. ${event.url || ''}`)}`,
+    `URL:${event.url || ''}`,
+    'END:VEVENT',
+    'END:VCALENDAR'
+].join('\r\n');
+
+const parsePost = (source = '', fallbackSlug = '') => {
+    const normalized = source.replace(/\r\n/g, '\n');
+    const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    const metadata = {};
+    let body = normalized.trim();
+
+    if (frontmatterMatch) {
+        frontmatterMatch[1].split('\n').forEach(line => {
+            const separator = line.indexOf(':');
+            if (separator === -1) return;
+            const key = line.slice(0, separator).trim();
+            const value = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
+            if (key) metadata[key] = value;
+        });
+        body = frontmatterMatch[2].trim();
+    }
+
+    const titleFromBody = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
+    const slug = metadata.slug || fallbackSlug;
+    const tags = (metadata.tags || '')
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean);
+    const wordCount = body.split(/\s+/).filter(Boolean).length;
+
+    return {
+        slug,
+        title: metadata.title || titleFromBody || slug,
+        excerpt: metadata.excerpt || '',
+        category: metadata.category || 'Field notes',
+        tags,
+        author: metadata.author || '6h4T 9pT pR0',
+        publishedAt: metadata.date || null,
+        readingMinutes: Math.max(1, Math.ceil(wordCount / 220)),
+        body
+    };
+};
+
+const getPosts = async () => {
+    let files = [];
+    try {
+        files = await fs.readdir(POSTS_DIR);
+    } catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+    }
+
+    const posts = await Promise.all(files
+        .filter(file => file.endsWith('.md') && !file.startsWith('_'))
+        .map(async file => {
+            const source = await fs.readFile(path.join(POSTS_DIR, file), 'utf8');
+            return parsePost(source, path.basename(file, '.md'));
+        }));
+
+    return posts.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''));
+};
 
 // --- [BOT] THREAT INTELLIGENCE FEED (NIST NVD + Exploit-DB) ---
 app.get('/api/threats', async (req, res) => {
@@ -171,6 +269,7 @@ app.get('/api/intel', async (req, res) => {
         console.log(`[AGENT] Scanning CTFtime for Team ID: ${TEAM_ID}...`);
         
         const timeNow = Math.floor(Date.now() / 1000);
+        const eventWindowStart = timeNow - (24 * 60 * 60);
         const timeEnd = timeNow + (30 * 24 * 60 * 60); // 30 ngày tới
         const currentYear = new Date().getFullYear().toString();
         const requestConfig = {
@@ -179,7 +278,7 @@ app.get('/api/intel', async (req, res) => {
         };
         const [teamResult, upcomingResult, currentResultsResult] = await Promise.allSettled([
             axios.get(`https://ctftime.org/api/v1/teams/${TEAM_ID}/`, requestConfig),
-            axios.get(`https://ctftime.org/api/v1/events/?limit=5&start=${timeNow}&finish=${timeEnd}`, requestConfig),
+            axios.get(`https://ctftime.org/api/v1/events/?limit=12&start=${eventWindowStart}&finish=${timeEnd}`, requestConfig),
             axios.get(`https://ctftime.org/api/v1/results/${currentYear}/?limit=100`, requestConfig)
         ]);
 
@@ -227,12 +326,10 @@ app.get('/api/intel', async (req, res) => {
         const upcomingEvents = upcomingResult.status === 'fulfilled' && Array.isArray(upcomingResult.value.data)
             ? upcomingResult.value.data
             : [];
-        const upcomingOps = upcomingEvents.map(evt => ({
-            name: evt.title,
-            start: new Date(evt.start).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
-            weight: evt.weight,
-            url: evt.url
-        }));
+        const upcomingOps = upcomingEvents
+            .map(toUpcomingOperation)
+            .filter(event => !event.finish || new Date(event.finish).getTime() > Date.now())
+            .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
 
         // Gửi về Frontend
         intelCache = {
@@ -261,6 +358,50 @@ app.get('/api/intel', async (req, res) => {
     }
 });
 
+app.get('/api/writeups', async (req, res) => {
+    try {
+        const posts = await getPosts();
+        res.json({
+            posts: posts.map(({ body, ...summary }) => summary)
+        });
+    } catch (error) {
+        console.error(`[BLOG] Failed to load posts: ${error.message}`);
+        res.status(500).json({ error: 'Writeup library is temporarily unavailable.' });
+    }
+});
+
+app.get('/api/writeups/:slug', async (req, res) => {
+    try {
+        if (!/^[a-z0-9-]+$/.test(req.params.slug)) {
+            return res.status(400).json({ error: 'Invalid writeup slug.' });
+        }
+
+        const posts = await getPosts();
+        const post = posts.find(item => item.slug === req.params.slug);
+        if (!post) return res.status(404).json({ error: 'Writeup not found.' });
+        res.json({ post });
+    } catch (error) {
+        console.error(`[BLOG] Failed to load post: ${error.message}`);
+        res.status(500).json({ error: 'Writeup is temporarily unavailable.' });
+    }
+});
+
+app.get('/api/events/:id/calendar.ics', (req, res) => {
+    const event = intelCache?.upcoming?.find(item => String(item.id) === req.params.id);
+    if (!event || !event.start || !event.finish) {
+        return res.status(404).json({ error: 'Calendar event is not available.' });
+    }
+
+    const filename = String(event.name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'ctf-event';
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}.ics"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(createIcs(event));
+});
+
 app.get('*', (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
@@ -271,4 +412,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, getActiveRating, getParticipatedEvents };
+module.exports = { app, getActiveRating, getParticipatedEvents, toUpcomingOperation, parsePost, createIcs };

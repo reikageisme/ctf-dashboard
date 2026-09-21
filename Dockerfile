@@ -22,6 +22,7 @@ RUN npm ci --omit=dev
 # Copy code nguồn
 COPY server.js .
 COPY public ./public
+COPY content ./content
 COPY --from=builder /app/public/app.bundle.js ./public/app.bundle.js
 
 # --- Bảo mật: Tạo user quyền hạn chế ---
