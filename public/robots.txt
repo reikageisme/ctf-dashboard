@@ -1,0 +1,30 @@
+# 6h4T 9pT pR0 Security Operations Center
+# robots.txt - Web Crawler Control File
+
+User-agent: *
+Disallow: /admin/
+Disallow: /secret/
+Disallow: /flag.txt
+Disallow: /database/
+Disallow: /api/internal/
+
+# Hidden directories (don't look here 😉)
+Disallow: /hidden/
+Disallow: /.git/
+Disallow: /backup/
+
+# Crawl-delay
+Crawl-delay: 10
+
+# 🚩 Easter Egg Alert!
+# FLAG{R0B0T5_TXT_15_N0T_S3CUR3}
+# Congratulations! You found a hidden flag!
+# Try base64 decoding: Ym9vdGxlZ2dlcg==
+
+# Sitemap
+Sitemap: https://ctftime.org/team/412747
+
+# Security Note:
+# This file is intentionally configured to reveal
+# "sensitive" paths for CTF training purposes.
+# In production, never expose real paths here!
